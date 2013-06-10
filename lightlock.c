@@ -1,4 +1,4 @@
-// gcc lightlock.c -framework IOKit -framework ApplicationServices
+// gcc lightlock.c -framework IOKit -framework ApplicationServices -o lightlock
 
 #include <IOKit/IOKitLib.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -18,10 +18,12 @@ int makeReaction(uint64_t current);
 static io_connect_t port = 0;
 static double conversion_factor;
 
+// Переключение Мака в режим блокировки
 void macLock () {
     CGSCreateLoginSession(NULL);
 }
 
+// Считаем количество жестов
 void delayedReaction() {
     static uint64_t start = 0;
     static int countevents = 0;
@@ -45,6 +47,7 @@ void delayedReaction() {
     start = now;
 }
 
+// Считывание датчика освещёности
 void updateTimerCallBack(CFRunLoopTimerRef timer, void *info) {
     IOItemCount osize = 2;
     uint64_t values[osize];
@@ -53,7 +56,7 @@ void updateTimerCallBack(CFRunLoopTimerRef timer, void *info) {
     NULL, 0, NULL, 0, values, &osize, NULL, 0);
 
     if (ret == KERN_SUCCESS) {
-        if (makeReaction(values[0])) {
+        if (checkGesture(values[0])) {
             delayedReaction();
         }
     }
@@ -96,6 +99,7 @@ int main() {
     exit(0);
 }
 
+// Проверка элемента из описания жеста
 int checkMask(char mask, const int64_t diff, const int64_t prevdiff) {
     switch (mask) {
         case '+': return diff > 0;
@@ -108,7 +112,8 @@ int checkMask(char mask, const int64_t diff, const int64_t prevdiff) {
     return 0;
 }
 
-int makeReaction(uint64_t current) {
+// Проверка жеста
+int checkGesture(uint64_t current) {
     static uint64_t window[WINDOWSIZE];
     static uint64_t prevdiff = 0;
     static gesturepos = 0;
