@@ -9,18 +9,28 @@
 #define WINDOWSIZE 10 // количество накопляемых значений датчика
 #define GESTURES "+vvv000-^^^" // описание жеста
 #define UPDATEINTERVAL .01 // интервал считывания значений датчика
-#define GESTDELAY 1400 // максимальная задержка до следующего жеста
+#define GESTDELAY 2000 // максимальная задержка до следующего жеста
 #define GESTNUM 2 // число жестов - 1
 #define GESTJOINDIFF 20 // задержка между срабатываниями внутри жеста
 
-const kGetSensorReadingID = 0;
+const int kGetSensorReadingID = 0;
 int makeReaction(uint64_t current);
 static io_connect_t port = 0;
 static double conversion_factor;
 
+typedef int CGSSessionID;
+CG_EXTERN CGError CGSCreateLoginSession(CGSSessionID *outSession);
+CG_EXTERN CFDictionaryRef CGSCopyCurrentSessionDictionary(void);
+
 // Переключение Мака в режим блокировки
 void macLock () {
-    CGSCreateLoginSession(NULL);
+    CFDictionaryRef dict = CGSCopyCurrentSessionDictionary();
+
+    CFNumberRef number = (CFNumberRef) CFDictionaryGetValue(dict, CFSTR("kCGSSessionIDKey"));
+    CGSSessionID currentSession;
+    CFNumberGetValue(number, kCFNumberIntType, &currentSession);
+
+    CGSCreateLoginSession(&currentSession);
 }
 
 // Считаем количество жестов
@@ -38,13 +48,58 @@ void delayedReaction() {
         } else {
             if (duration_ms > GESTJOINDIFF && ++countevents >= GESTNUM) {
                 countevents = start = 0;
-
                 macLock();
                 sleep(3); // даём экрану логина отработать нормально
             }
          }
     }
     start = now;
+}
+
+// Проверка элемента из описания жеста
+int checkMask(char mask, const int64_t diff, const int64_t prevdiff) {
+    switch (mask) {
+        case '+': return diff > 0;
+        case '-': return diff < 0;
+        case '0': return diff == 0;
+        case 'v': return prevdiff > diff;
+        case '^': return diff > prevdiff;
+    }
+
+    return 0;
+}
+
+// Проверка жеста, передаётся текущее значение датчика
+int checkGesture(uint64_t current) {
+    static uint64_t window[WINDOWSIZE];
+    static uint64_t prevdiff = 0;
+    static int gesturepos = 0;
+
+    uint64_t average = current;
+    int i, notzerocnt = 1;
+
+    for (i = WINDOWSIZE-1; i > 0; i--) {
+        if ((window[i] = window[i-1])) {
+            average += window[i];
+            notzerocnt++;
+        }
+    }
+
+    window[0] = current;
+    average /= notzerocnt;
+
+    int64_t diff = average - current;
+
+    if (checkMask(GESTURES[gesturepos], diff, prevdiff)) {
+        gesturepos++;
+    } else {
+        if (!gesturepos || !checkMask(GESTURES[gesturepos-1], diff, prevdiff)) {
+            gesturepos = 0;
+        }
+    }
+
+    prevdiff = diff;
+    return gesturepos == sizeof GESTURES - 1;
 }
 
 // Считывание датчика освещёности
@@ -97,49 +152,4 @@ int main() {
     CFRunLoopRun();
 
     exit(0);
-}
-
-// Проверка элемента из описания жеста
-int checkMask(char mask, const int64_t diff, const int64_t prevdiff) {
-    switch (mask) {
-        case '+': return diff > 0;
-        case '-': return diff < 0;
-        case '0': return diff == 0;
-        case 'v': return prevdiff > diff;
-        case '^': return diff > prevdiff;
-    }
-
-    return 0;
-}
-
-// Проверка жеста
-int checkGesture(uint64_t current) {
-    static uint64_t window[WINDOWSIZE];
-    static uint64_t prevdiff = 0;
-    static gesturepos = 0;
-
-    uint64_t average = current;
-    int i, notzerocnt = 1;
-
-    for (i = WINDOWSIZE-1; i > 0; i--) {
-        if (window[i] = window[i-1]) {
-            average += window[i];
-            notzerocnt++;
-        }
-    }
-
-    window[0] = current;
-    average /= notzerocnt;
-
-    int64_t diff = average - current;
-    if (checkMask(GESTURES[gesturepos], diff, prevdiff)) {
-        gesturepos++;
-    } else {
-        if (!gesturepos || !checkMask(GESTURES[gesturepos-1], diff, prevdiff)) {
-            gesturepos = 0;
-        }
-    }
-
-    prevdiff = diff;
-    return gesturepos == sizeof GESTURES - 1;
 }
